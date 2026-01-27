@@ -247,7 +247,7 @@ class MyPARE(BaseTopDownModelCache):
 
     def _load_pretrained_model(self, ckpt):
         # ========= Load pretrained weights ========= #
-        state_dict = torch.load(ckpt, map_location='cpu')['state_dict']
+        state_dict = torch.load(ckpt, map_location='cpu', weights_only=False)['state_dict']
         pretrained_keys = state_dict.keys()
         new_state_dict = {}
         for pk in pretrained_keys:

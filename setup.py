@@ -5,7 +5,7 @@
   @ LastEditTime: 2022-11-03 13:10:59
   @ FilePath: /EasyMocapRelease/setup.py
 '''
-from setuptools import setup
+from setuptools import setup, find_packages
 
 setup(
     name='easymocap',     
@@ -14,17 +14,7 @@ setup(
     author='Qing Shuai', 
     author_email='s_q@zju.edu.cn',
     # test_suite='setup.test_all',
-    packages=[
-        'easymocap',
-        'easymocap.config',
-        'easymocap.dataset',
-        'easymocap.smplmodel',
-        'easymocap.pyfitting',
-        'easymocap.mytools', 
-        'easymocap.annotator',
-        'easymocap.estimator',
-        'myeasymocap'
-    ],
+    packages=find_packages(include=['apps', 'easymocap', 'myeasymocap']),
     entry_points={
         'console_scripts': [
             'emc=apps.mocap.run:main_entrypoint',
