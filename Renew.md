@@ -3,6 +3,7 @@
 conda create -n easymocap python=3.9 -y
 conda activate easymocap
 python -m pip install -r requirements.txt
+python setup.py develop
 ```
   
 Next, remove the first line in `chumpy/__init__.py` (inside python's `site-packages`)
