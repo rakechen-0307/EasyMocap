@@ -6,7 +6,7 @@ python -m pip install -r requirements.txt
 python setup.py develop
 ```
   
-Next, remove the first line in `chumpy/__init__.py` (inside python's `site-packages`)
+Next, remove line 1 in `chumpy/__init__.py` (inside python's `site-packages`)
 ```bash
 from numpy import bool, int, float, complex, object, str, nan, inf
 ```
