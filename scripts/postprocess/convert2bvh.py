@@ -1,5 +1,7 @@
 import os
 import json
+import torch
+import smplx
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 
@@ -14,35 +16,33 @@ SMPL_JOINT_NAMES = [
 # Standard SMPL Parent Indices
 SMPL_PARENTS = [-1, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 9, 9, 12, 13, 14, 16, 17, 18, 19, 20, 21]
 
-# Mean SMPL Offsets (Male)
-SMPL_OFFSETS = np.array([
-    [0.0, 0.0, 0.0],                          # pelvis (root)
-    [0.05858135, -0.07485655, -0.01076985],   # thigh_l
-    [-0.06030973, -0.07470079, -0.01263084],  # thigh_r
-    [0.00443945, 0.13255003, -0.02336406],    # stomach
-    [0.04546878, -0.38555849, 0.01662963],    # calf_l
-    [-0.04634289, -0.39276251, 0.01633527],   # calf_r
-    [0.00448844, 0.13459153, -0.01103504],    # diaphragm
-    [0.00979727, -0.42672321, -0.03810842],   # foot_l
-    [-0.01183556, -0.42878771, -0.03554174],  # foot_r
-    [0.00226459, 0.13054353, -0.02166699],    # chest
-    [0.04660314, -0.07542279, 0.11749724],    # toe_l
-    [-0.04618765, -0.07062489, 0.11656886],   # toe_r
-    [-0.00164673, 0.13783935, 0.01898734],    # neck
-    [0.08272535, 0.05886477, -0.01755913],    # clavicle_l
-    [-0.08182963, 0.06202167, -0.01777013],   # clavicle_r
-    [0.00511599, 0.09349814, 0.0415392],      # head
-    [0.11470433, -0.02237064, -0.00898711],   # arm_l
-    [-0.11905067, -0.02230303, -0.01358364],  # arm_r
-    [0.26477611, -0.01323386, -0.02337774],   # forearm_l
-    [-0.26622838, -0.01423405, -0.02989299],  # forearm_r
-    [0.24522966, -0.01235123, -0.01189334],   # hand_l
-    [-0.25203794, -0.01309325, -0.01449627],  # hand_r
-    [0.08479366, -0.01041183, -0.01321451],   # weapon_l
-    [-0.08579707, -0.01026639, -0.01460677]   # weapon_r
-])
+def calculate_custom_offsets(shapes, smpl_model_path, gender='male'):
+    """
+    Generates dynamic bone offsets based on the subject's shape parameters.
+    """
+    # Initialize the SMPL model
+    smpl_model = smplx.create(smpl_model_path, model_type='smpl', gender=gender)
+    
+    # Format shapes for PyTorch
+    betas = torch.tensor(shapes).float().unsqueeze(0)  # Shape: (1, 10)
+    
+    # Forward pass to get 3D joint locations in rest pose
+    output = smpl_model(betas=betas, return_verts=False)
+    
+    # Extract the first 24 standard SMPL joints
+    joints_3d = output.joints.detach().numpy()[0, :24, :]
+    
+    # Calculate relative offsets (Child - Parent)
+    custom_offsets = np.zeros((24, 3))
+    for i, p in enumerate(SMPL_PARENTS):
+        if p == -1:
+            custom_offsets[i] = [0.0, 0.0, 0.0]  # Root offset is 0 relative to itself in BVH
+        else:
+            custom_offsets[i] = joints_3d[i] - joints_3d[p]
+            
+    return custom_offsets
 
-def write_bvh(filepath, motions, frame_time=0.033):
+def write_bvh(filepath, motions, offsets, frame_time=0.033):
     poses = motions['poses'] # (N, 72)
     trans = motions['trans'] # (N, 3)
     n_frames = poses.shape[0]
@@ -55,14 +55,11 @@ def write_bvh(filepath, motions, frame_time=0.033):
     
     # Apply correction to every frame of the Root (Index 0)
     for i in range(n_frames):
-        # Current root rotation
         r_root = R.from_rotvec(poses_reshaped[i, 0])
-        # Multiply: Correction * Original
         r_new = r_correction * r_root
-        # Store back
         poses_reshaped[i, 0] = r_new.as_rotvec()
 
-    # --- 3. Build Tree ---
+    # Build Tree
     children = {i: [] for i in range(len(SMPL_JOINT_NAMES))}
     for i, p in enumerate(SMPL_PARENTS):
         if p != -1:
@@ -75,14 +72,14 @@ def write_bvh(filepath, motions, frame_time=0.033):
             get_dfs_order(child_idx)
     get_dfs_order(0)
 
-    # --- 4. Write File ---
+    # Write File
     with open(filepath, 'w') as f:
         f.write("HIERARCHY\n")
         
         def write_joint_hierarchy(joint_idx, level):
             indent = "\t" * level
             name = SMPL_JOINT_NAMES[joint_idx]
-            offset = SMPL_OFFSETS[joint_idx]
+            offset = offsets[joint_idx]  # <-- USING CUSTOM OFFSETS HERE
             
             if level == 0:
                 f.write(f"ROOT {name}\n")
@@ -135,10 +132,9 @@ def read_json(path):
     with open(path) as f:
         return json.load(f)
 
-def process_sequence(input_dir, output_file):
+def process_sequence(input_dir, output_file, smpl_model_path):
     from glob import glob
     
-    # 1. Gather all JSON files
     files = sorted(glob(os.path.join(input_dir, '*.json')))
     if not files:
         print(f"No .json files found in {input_dir}")
@@ -148,29 +144,26 @@ def process_sequence(input_dir, output_file):
 
     all_poses = []
     all_trans = []
+    base_shapes = None
 
-    # 2. Iterate and Collect Data
     for filename in files:
         try:
             data = read_json(filename)
-            # Handle list vs dict
             if isinstance(data, list):
-                entry = data[0] # Assume one person per frame file
+                entry = data[0] 
             elif isinstance(data, dict) and 'annots' in data:
                 entry = data['annots'][0]
             else:
                 continue
 
-            # Extract Rh, Poses, Th
-            rh = np.array(entry['Rh'])
-            poses = np.array(entry['poses'])
-            trans = np.array(entry['Th'])
-
-            # Flatten and Merge
-            # Logic: If pose is 69, add Rh. If 72, use as is.
-            poses = poses.reshape(-1)
-            rh = rh.reshape(-1)
+            rh = np.array(entry['Rh']).reshape(-1)
+            poses = np.array(entry['poses']).reshape(-1)
+            trans = np.array(entry['Th']).reshape(-1)
             
+            # Extract shapes only once (assuming same person across sequence)
+            if base_shapes is None and 'shapes' in entry:
+                base_shapes = np.array(entry['shapes']).reshape(-1)
+
             if poses.size == 69:
                 full_pose = np.concatenate((rh, poses))
             elif poses.size == 72:
@@ -180,7 +173,7 @@ def process_sequence(input_dir, output_file):
                 continue
             
             all_poses.append(full_pose)
-            all_trans.append(trans.reshape(3))
+            all_trans.append(trans)
 
         except Exception as e:
             print(f"Skipping frame {filename}: {e}")
@@ -189,22 +182,28 @@ def process_sequence(input_dir, output_file):
     if not all_poses:
         print("No valid motion data extracted.")
         return
+        
+    if base_shapes is None:
+        print("Warning: No 'shapes' parameter found. Make sure your JSON includes it.")
+        return
 
-    # 3. Stack into single array (N, 72) and (N, 3)
     final_poses = np.vstack(all_poses)
     final_trans = np.vstack(all_trans)
 
-    # 4. Write Single BVH
-    write_bvh(output_file, {'poses': final_poses, 'trans': final_trans})
+    print("Generating custom skeleton offsets...")
+    custom_offsets = calculate_custom_offsets(base_shapes, smpl_model_path)
+
+    write_bvh(output_file, {'poses': final_poses, 'trans': final_trans}, custom_offsets)
 
 def main():
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--path', type=str, help='Input directory containing numbered JSONs')
+    parser.add_argument('--path', type=str, required=True, help='Input directory containing numbered JSONs')
     parser.add_argument('--out', type=str, required=True, help='Output filename (e.g. anim.bvh)')
+    parser.add_argument('--smpl_dir', type=str, required=True, help='Path to the directory containing SMPL models')
     args = parser.parse_args()
 
-    process_sequence(args.path, args.out)
+    process_sequence(args.path, args.out, args.smpl_dir)
 
 if __name__ == '__main__':
     main()
