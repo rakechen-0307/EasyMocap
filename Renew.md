@@ -1,6 +1,6 @@
 ## Installation    
 ```bash
-conda create -n easymocap python=3.9 -y
+conda create -n easymocap python=3.11 -y
 conda activate easymocap
 python -m pip install -r requirements.txt
 python setup.py develop
