@@ -19,4 +19,4 @@ setuptools
 tensorboard
 pytorch-lightning
 spconv-cu120
-smplx
+bpy

@@ -69,7 +69,7 @@ def init_scene(scene, params, gender='male', angle=0):
 
     # setup an empty object in the center which will be the parent of the Camera
     # this allows to easily rotate an object around the origin
-    scn.cycles.film_transparent = True
+    bpy.context.scene.render.film_transparent = 1
     bpy.context.view_layer.use_pass_vector = True
     bpy.context.view_layer.use_pass_normal = True
     bpy.context.view_layer.use_pass_emit = True
@@ -174,7 +174,7 @@ def merge_params(param_list, share_shape=True):
 def load_motions(path):
     from glob import glob
     filenames = sorted(glob(join(path, '*.json')))
-    print(filenames)
+    # print(filenames)
     motions = {}
     # for filename in filenames[300:900]:
     for filename in filenames:
@@ -218,7 +218,7 @@ def main(params):
         # load smpl params:
         nFrames = data['poses'].shape[0]
         for frame in range(nFrames):
-            print(frame)
+            # print(frame)
             scene.frame_set(frame)
             # apply
             trans = data['Th'][frame]

@@ -12,6 +12,8 @@ def parse_args():
 
 def extract_frames(video_path, output_folder):
     output_folder.mkdir(parents=True, exist_ok=True)
+    if not pathlib.Path(video_path).is_file():
+        raise FileNotFoundError(f"Video file not found: {video_path}")
     cap = cv2.VideoCapture(video_path)
     frame_count = 0
 
