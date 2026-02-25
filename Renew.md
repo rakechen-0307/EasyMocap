@@ -24,5 +24,5 @@ PYOPENGL_PLATFORM=egl emc --data config/datasets/svimage.yml --exp config/1v1p/h
 
 ### Convert Skeleton to .bvh Format
 ```bash
-python scripts/postprocess/convert2bvh.py --path ${Path to SMPL JSONs} --out ${Path to Extracted .bvh file}  
+~/blender-4.5.1-linux-x64/blender --background --python scripts/postprocess/convert2bvh.py -- output/sv1p/smpl/ --out output --gender male
 ```
